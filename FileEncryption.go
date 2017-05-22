@@ -3,98 +3,129 @@ package FileEncryption
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
+	"errors"
+	"fmt"
 	"io"
 	"os"
+	"strings"
 )
 
+var plaintext []byte
+
 var block cipher.Block
-var iv [aes.BlockSize]byte
-var stream cipher.Stream
-var targetFileName string
 var key []byte
 
 // Ext is the encrypted appended extension
 var Ext = ".enc"
 
-// InitializeBlock Sets up the encription with a key
-func InitializeBlock(myKey []byte, tfn string) {
-	key = myKey
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		panic(err)
-	}
-	/*for index, b := range myIv {
-
-		iv[index] = b
-
-	}*/
-	stream = cipher.NewCTR(block, iv[:])
-	targetFileName = tfn
-}
-
-// StreamDecrypter decryps a file given its filepath
-func StreamDecrypter(path string) (err error) {
-	inFile, err := os.Open(path)
-	if err != nil {
-		//Couldn't open file, maybe a folder
-		return
-	}
-
-	outFile, err := os.OpenFile(filenameDeobfuscator(path), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0777)
-	if err != nil {
-		return
-	}
-	defer outFile.Close()
-	reader := &cipher.StreamReader{S: stream, R: inFile}
-	if _, err = io.Copy(outFile, reader); err != nil {
-		panic(err)
-	}
-	inFile.Close()
-
-	//os.Remove(path)
+func main() {
 	return
 }
 
-// StreamEncrypter encrypts a file given its filepatth
-func StreamEncrypter(path string) (err error) {
-	inFile, err := os.Open(path)
+// InitializeBlock Sets up the encription with a key
+func InitializeBlock(myKey []byte) {
+	key = myKey
+	block, _ = aes.NewCipher(key)
+
+}
+func initIV() (stream cipher.Stream, iv []byte) {
+	iv = make([]byte, aes.BlockSize)
+	_, err := rand.Read(iv)
 	if err != nil {
+		fmt.Println("error:", err)
 		return
 	}
-	outFile, err := os.OpenFile(filenameObfuscator(path), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0777)
+	stream = cipher.NewCTR(block, iv[:])
+	return stream, iv
+}
+func initWithIV(myIv []byte) cipher.Stream {
+	return cipher.NewCTR(block, myIv[:])
+}
+
+// Decrypter decryps a file given its filepath
+func Decrypter(path string) (err error) {
+	if block == nil {
+		return errors.New("Need to Initialize Block first. Call: InitializeBlock(myKey []byte)")
+	}
+
+	inFile, err := os.Open(path)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+
+	deobfPath := filenameDeobfuscator(path)
+	outFile, err := os.OpenFile(deobfPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0777)
 	if err != nil {
 		return
 	}
 
+	iv := make([]byte, aes.BlockSize)
+	io.ReadFull(inFile, iv[:])
+	stream := initWithIV(iv)
+	inFile.Seek(aes.BlockSize, 0) // Read after the IV
+
+	reader := &cipher.StreamReader{S: stream, R: inFile}
+	if _, err = io.Copy(outFile, reader); err != nil {
+		fmt.Println(err)
+	}
+	inFile.Close()
+
+	os.Remove(path)
+	return
+}
+
+// Encrypter encrypts a file given its filepatth
+func Encrypter(path string) (err error) {
+	if block == nil {
+		return errors.New("Need to Initialize Block first. Call: InitializeBlock(myKey []byte)")
+	}
+
+	inFile, err := os.Open(path)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	obfuscatePath := filenameObfuscator(path)
+	outFile, err := os.OpenFile(obfuscatePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0777)
+	fmt.Println(outFile.Name())
+
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	stream, iv := initIV()
+	outFile.Write(iv)
 	writer := &cipher.StreamWriter{S: stream, W: outFile}
 
 	if _, err = io.Copy(writer, inFile); err != nil {
-		panic(err)
+		fmt.Println(err.Error())
 	}
 	inFile.Close()
 	outFile.Close()
-	//os.Remove(path)
+	os.Remove(path)
 	return nil
 }
 
 func filenameObfuscator(path string) string {
-	/*filenameArr := strings.Split(path, string(os.PathSeparator))
+	filenameArr := strings.Split(path, string(os.PathSeparator))
 	filename := filenameArr[len(filenameArr)-1]
 	path2 := strings.Join(filenameArr[:len(filenameArr)-1], string(os.PathSeparator))
 
-	return path2 + string(os.PathSeparator) + base64.Encode(filename) + Ext*/
-	return path
+	return path2 + string(os.PathSeparator) + filename + Ext
 
 }
 func filenameDeobfuscator(path string) string {
-	/*//get the path for the output
+	//get the path for the output
 	opPath := strings.Trim(path, Ext)
 	// Divide filepath
 	filenameArr := strings.Split(opPath, string(os.PathSeparator))
-	//Get base64 encoded filename
+	//Get  filename
 	filename := filenameArr[len(filenameArr)-1]
 	// get parent dir
 	path2 := strings.Join(filenameArr[:len(filenameArr)-1], string(os.PathSeparator))
-	return path2 + string(os.PathSeparator) + base64.Decode(filename)*/
-	return path
+	return path2 + string(os.PathSeparator) + filename
 }
